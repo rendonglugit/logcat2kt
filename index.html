@@ -1,0 +1,1896 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Logcat → JSON → Kotlin Data Class</title>
+<style>
+:root{
+  --bg:#f5f6f8;
+  --panel:#ffffff;
+  --line:#e4e7ec;
+  --line-soft:#eef0f3;
+  --text:#1f2328;
+  --muted:#6b7280;
+  --muted-2:#9aa1ad;
+  --accent:#4f46e5;
+  --accent-soft:#eef0ff;
+  --ok:#0f7b52;
+  --warn:#b45309;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{
+  background:var(--bg);color:var(--text);
+  font-family:var(--sans);font-size:13px;line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+  overflow:hidden;
+}
+.app{display:flex;flex-direction:column;height:100vh}
+
+/* ---------- 顶部 ---------- */
+.topbar{
+  background:var(--panel);border-bottom:1px solid var(--line);
+  padding:11px 18px 0;flex:none;
+}
+.brand{display:flex;align-items:center;gap:10px;padding-bottom:10px}
+.logo{
+  width:24px;height:24px;border-radius:6px;flex:none;
+  background:linear-gradient(135deg,#4f46e5,#7c6cf6);
+  display:flex;align-items:center;justify-content:center;
+  color:#fff;font-size:12px;font-weight:700;font-family:var(--mono);
+}
+.brand h1{font-size:14px;font-weight:600;margin:0;letter-spacing:-.1px}
+.brand .sub{color:var(--muted-2);font-size:12px;margin-left:2px}
+.spacer{flex:1}
+.btn{
+  border:1px solid var(--line);background:#fff;color:var(--text);
+  border-radius:6px;padding:5px 11px;font-size:12px;cursor:pointer;
+  font-family:inherit;transition:.14s;white-space:nowrap;
+}
+.btn:hover{background:#f7f8fa;border-color:#d3d8e0}
+.btn:active{transform:translateY(.5px)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.primary:hover{background:#4438d4;border-color:#4438d4}
+.btn.ghost{border-color:transparent;background:transparent;color:var(--muted)}
+.btn.ghost:hover{background:#f2f3f6;color:var(--text)}
+
+/* ---------- 选项条 ---------- */
+.options{
+  display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  padding:0 0 11px;font-size:12px;color:var(--muted);
+}
+.opt{display:flex;align-items:center;gap:6px}
+.opt label{color:var(--muted);white-space:nowrap}
+.opt input[type=text]{
+  border:1px solid var(--line);border-radius:5px;padding:4px 8px;
+  font-family:var(--mono);font-size:12px;width:130px;color:var(--text);
+  outline:none;transition:.14s;background:#fff;
+}
+.opt input[type=text]:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.opt select{
+  border:1px solid var(--line);border-radius:5px;padding:4px 6px;
+  font-family:inherit;font-size:12px;color:var(--text);background:#fff;
+  outline:none;cursor:pointer;transition:.14s;
+}
+.opt select:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.chk{display:flex;align-items:center;gap:5px;cursor:pointer;user-select:none}
+.chk input{accent-color:var(--accent);cursor:pointer;margin:0}
+
+/* ---------- 主区 ---------- */
+.workspace{flex:1;display:grid;grid-template-columns:1fr 1fr;min-height:0;background:var(--panel)}
+.pane{display:flex;flex-direction:column;min-height:0;min-width:0}
+.pane.left{border-right:1px solid var(--line)}
+.pane-head{
+  flex:none;height:38px;padding:0 14px;display:flex;align-items:center;gap:8px;
+  border-bottom:1px solid var(--line-soft);background:#fbfbfc;
+}
+.pane-title{font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.02em}
+.pane-body{flex:1;min-height:0;position:relative}
+
+textarea#input{
+  width:100%;height:100%;border:none;outline:none;resize:none;
+  padding:13px 15px;font-family:var(--mono);font-size:12.5px;line-height:1.62;
+  color:var(--text);background:transparent;tab-size:2;
+}
+textarea#input::placeholder{color:#b6bcc7}
+
+/* tabs */
+.tabs{display:flex;gap:2px;background:#f0f1f4;padding:2px;border-radius:6px}
+.tab{
+  border:none;background:transparent;padding:4px 10px;border-radius:4px;
+  font-size:12px;color:var(--muted);cursor:pointer;font-family:inherit;transition:.12s;
+}
+.tab:hover{color:var(--text)}
+.tab.on{background:#fff;color:var(--text);font-weight:500;box-shadow:0 1px 2px rgba(16,24,40,.07)}
+
+.out::-webkit-scrollbar,.pane-body::-webkit-scrollbar{width:10px;height:10px}
+.out::-webkit-scrollbar-thumb{background:#d8dce3;border-radius:6px;border:3px solid #fff}
+.out::-webkit-scrollbar-thumb:hover{background:#c3c9d3}
+.out::-webkit-scrollbar-track{background:transparent}
+
+.empty{
+  position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  color:#b6bcc7;font-size:12.5px;pointer-events:none;text-align:center;padding:20px;
+}
+
+/* 语法高亮 */
+.tok-key{color:#1a56db}
+.tok-str{color:#0a7d4b}
+.tok-num{color:#b45309}
+.tok-lit{color:#7c3aed}
+.tok-kw{color:#9333ea}
+.tok-anno{color:#b45309}
+.tok-com{color:#8a94a6;font-style:italic}
+.tok-type{color:#0e7490}
+
+/* ---------- 可折叠 JSON 树 ---------- */
+.out{
+  width:100%;height:100%;overflow:auto;margin:0;
+  padding:12px 14px;font-family:var(--mono);font-size:12.5px;line-height:1.65;
+  color:var(--text);background:transparent;white-space:pre;
+}
+.tree{white-space:normal;padding:9px 12px}
+.tn{position:relative}
+.tl{
+  display:flex;align-items:flex-start;min-height:20px;white-space:pre;
+  border-radius:3px;padding-right:6px;
+}
+.tl:hover{background:#f7f8fa}
+.tl-end{padding-right:6px}
+.tc{
+  flex:none;width:15px;height:20px;display:inline-flex;align-items:center;justify-content:center;
+  cursor:pointer;color:#8e96a3;font-size:10px;user-select:none;transition:transform .13s ease;
+}
+.tc:hover{color:var(--accent)}
+.tn.collapsed > .tl > .tc{transform:rotate(-90deg)}
+.tc.leaf{visibility:hidden;cursor:default}
+.tc-body{padding-left:14px;margin-left:4px;border-left:1px solid #e3e7ee}
+.tn.collapsed > .tc-body{display:none}
+.tn.collapsed > .tl-end{display:none}
+.tm{display:none;color:#9aa1ad;font-size:11px;margin-left:5px;align-self:center}
+.tn.collapsed > .tl > .tm{display:inline}
+.tn.collapsed > .tl > .tb-open{display:none}
+.tf{display:none}
+.tn.collapsed > .tl > .tf{display:inline}
+.tp{color:#8a94a6}
+.tb{color:#5b6472}
+.tcomma{color:#8a94a6}
+.tc-count{color:#9aa1ad;font-size:11px;margin-left:5px;align-self:center}
+.group-head{
+  color:#8a94a6;font-style:italic;font-size:11.5px;
+  margin:2px 0 4px;padding:2px 0;white-space:pre;
+}
+.group-head + .tn{margin-top:2px}
+.tn + .group-head{margin-top:14px}
+
+/* ---------- 状态栏 ---------- */
+.statusbar{
+  flex:none;height:30px;display:flex;align-items:center;gap:0;
+  padding:0 16px;background:#fbfbfc;border-top:1px solid var(--line);
+  font-size:11.5px;color:var(--muted-2);overflow:hidden;white-space:nowrap;
+}
+.st{display:inline-flex;align-items:center;gap:5px;margin-right:14px}
+.st b{color:var(--muted);font-weight:600}
+.st .dot{width:5px;height:5px;border-radius:50%;background:#cbd1da;flex:none}
+.st.ok .dot{background:#16a34a}
+.st.warn .dot{background:#f59e0b}
+.st.err .dot{background:#dc2626}
+.st.err b{color:#b91c1c}
+
+@media (max-width:900px){
+  .workspace{grid-template-columns:1fr;grid-template-rows:1fr 1fr}
+  .pane.left{border-right:none;border-bottom:1px solid var(--line)}
+  .options{gap:10px}
+}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <div class="topbar">
+    <div class="brand">
+      <div class="logo">{}</div>
+      <h1>Logcat → Kotlin</h1>
+      <span class="sub">截断拼接 · JSON 美化 · data class 生成</span>
+      <div class="spacer"></div>
+      <button class="btn ghost" id="btnSample">载入示例</button>
+      <button class="btn ghost" id="btnClear">清空</button>
+    </div>
+    <div class="options">
+      <div class="opt">
+        <label>根类名</label>
+        <input type="text" id="optRoot" value="Response" spellcheck="false">
+      </div>
+      <div class="opt">
+        <label>注解</label>
+        <select id="optAnno">
+          <option value="none">无</option>
+          <option value="gson" selected>Gson</option>
+          <option value="kotlinx">kotlinx.serialization</option>
+          <option value="moshi">Moshi</option>
+        </select>
+      </div>
+      <div class="opt">
+        <label>可空策略</label>
+        <select id="optNull">
+          <option value="all" selected>全部可空</option>
+          <option value="smart">按样本推断</option>
+          <option value="none">全部非空</option>
+        </select>
+      </div>
+      <div class="opt">
+        <label>命名</label>
+        <select id="optCase">
+          <option value="camel" selected>转 camelCase</option>
+          <option value="keep">保持原样</option>
+        </select>
+      </div>
+      <label class="chk"><input type="checkbox" id="optTs" checked><span>时间戳字段用 Long</span></label>
+    </div>
+  </div>
+
+  <div class="workspace">
+    <div class="pane left">
+      <div class="pane-head">
+        <span class="pane-title">输入</span>
+        <span style="font-size:11.5px;color:var(--muted-2)">粘贴 logcat 任意行，含时间/包名前缀也行</span>
+        <div class="spacer"></div>
+        <button class="btn ghost" id="btnPaste" style="padding:3px 8px">粘贴</button>
+      </div>
+      <div class="pane-body">
+        <textarea id="input" spellcheck="false" placeholder="把 logcat 里复制的那几行贴进来…&#10;&#10;支持：&#10;  · 带 threadtime 前缀（2026-10-26 17:08:10.123 1234-5678/com.xx D/OkHttp:）&#10;  · 带 brief 前缀（D/OkHttp:）&#10;  · 无前缀的纯 JSON&#10;  · 被截断后拆成多条的同一段 JSON&#10;  · Kotlin data class 的 toString 输出"></textarea>
+      </div>
+    </div>
+
+    <div class="pane right">
+      <div class="pane-head">
+        <div class="tabs">
+          <button class="tab on" data-tab="json">格式化 JSON</button>
+          <button class="tab" data-tab="kotlin">Kotlin</button>
+        </div>
+        <div class="spacer"></div>
+        <button class="btn ghost" id="btnFoldAll" style="padding:3px 8px;font-size:11.5px">全部折叠</button>
+        <button class="btn ghost" id="btnUnfoldAll" style="padding:3px 8px;font-size:11.5px">全部展开</button>
+        <button class="btn primary" id="btnCopy" style="padding:3px 10px">复制</button>
+      </div>
+      <div class="pane-body">
+        <div class="out tree" id="outJson"></div>
+        <pre class="out" id="outKotlin" style="display:none"></pre>
+        <div class="empty" id="emptyTip">等待输入…</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="statusbar" id="statusbar">
+    <span class="st"><span class="dot"></span><span>就绪</span></span>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* =========================================================
+   * 0. 基础工具
+   * ========================================================= */
+  function esc(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  /* Kotlin 硬关键字：作为属性名必须加反引号 */
+  var HARD_KEYWORDS = new Set(('as break class continue do else false for fun if in interface is null ' +
+    'object package return super this throw true try typealias typeof val var when while').split(' '));
+
+  /* 高亮用：硬关键字 + 软关键字 */
+  var KEYWORDS = new Set(Array.from(HARD_KEYWORDS).concat(('by catch constructor delegate dynamic field file ' +
+    'finally get import init param property receiver set setparam where actual abstract annotation companion ' +
+    'const crossinline data enum expect external final infix inline inner internal lateinit noinline open ' +
+    'operator out override private protected public reified sealed suspend tailrec vararg value').split(' ')));
+
+  function capPart(p) {
+    if (!p) return p;
+    if (p === p.toUpperCase() && p.length <= 3 && /^[A-Z]+$/.test(p)) {
+      return p.charAt(0).toUpperCase() + p.slice(1).toLowerCase();
+    }
+    return p.charAt(0).toUpperCase() + p.slice(1);
+  }
+
+  function pascal(s) {
+    var parts = String(s).split(/[_\-\s\.]+/).filter(Boolean);
+    if (!parts.length) return 'Item';
+    var out = parts.map(capPart).join('');
+    if (!/^[A-Za-z]/.test(out)) out = 'T' + out;
+    return out;
+  }
+
+  function camel(s) {
+    var raw = String(s);
+    var parts = raw.split(/[_\-\s\.]+/).filter(Boolean);
+    if (parts.length <= 1) {
+      var t = raw.replace(/[_\-\s\.]+/g, '');
+      if (!t) return 'field';
+      if (!/^[A-Za-z]/.test(t)) return 'f' + t;
+      return t.charAt(0).toLowerCase() + t.slice(1);
+    }
+    var first = parts[0];
+    first = first.charAt(0).toLowerCase() + first.slice(1);
+    return first + parts.slice(1).map(capPart).join('');
+  }
+
+  function singular(w) {
+    if (!w) return w;
+    var l = w.toLowerCase();
+    if (l.length > 3 && l.endsWith('ies')) return w.slice(0, -3) + 'y';
+    if (/(ses|xes|zes|ches|shes)$/i.test(w)) return w.slice(0, -2);
+    if (l.endsWith('s') && !l.endsWith('ss') && !l.endsWith('us') && !l.endsWith('is')) return w.slice(0, -1);
+    return w;
+  }
+
+  /* =========================================================
+   * 1. logcat 行解析
+   * ========================================================= */
+  var PREFIX_PATTERNS = [
+    // 2026-10-26 17:08:10.123 1234-5678/com.pkg D/OkHttp:
+    {
+      re: /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2}[.,]\d{3})\s+(\d+)-(\d+)(?:\/(\S+))?\s+([VDIWEFA])\/([^:]*?):[ ]?/,
+      map: function (m) { return { ts: m[1] + ' ' + m[2], pid: m[3], tid: m[4], pkg: m[5] || '', level: m[6], tag: m[7] }; }
+    },
+    // 10-26 17:08:10.123  1234-5678/com.pkg D/OkHttp:
+    {
+      re: /^(\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2}[.,]\d{3})\s+(\d+)-(\d+)(?:\/(\S+))?\s+([VDIWEFA])\/([^:]*?):[ ]?/,
+      map: function (m) { return { ts: m[1] + ' ' + m[2], pid: m[3], tid: m[4], pkg: m[5] || '', level: m[6], tag: m[7] }; }
+    },
+    // 10-26 17:08:10.123 1234 5678 D/OkHttp:
+    {
+      re: /^(\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2}[.,]\d{3})\s+(\d+)\s+(\d+)\s+([VDIWEFA])\/([^:]*?):[ ]?/,
+      map: function (m) { return { ts: m[1] + ' ' + m[2], pid: m[3], tid: m[4], level: m[5], tag: m[6] }; }
+    },
+    // 17:08:10.123 1234-5678/com.pkg D/OkHttp:
+    {
+      re: /^(\d{2}:\d{2}:\d{2}[.,]\d{3})\s+(\d+)-(\d+)(?:\/(\S+))?\s+([VDIWEFA])\/([^:]*?):[ ]?/,
+      map: function (m) { return { ts: m[1], pid: m[2], tid: m[3], pkg: m[4] || '', level: m[5], tag: m[6] }; }
+    },
+    // 17:45:15.895  D  content   （只有时间 + 级别，没有 tag / pid，长文本续行常见）
+    {
+      re: /^(\d{2}:\d{2}:\d{2}[.,]\d{3})\s+([VDIWEFA])(?:\s+|$)/,
+      map: function (m) { return { ts: m[1], level: m[2], tag: '' }; }
+    },
+    // D/OkHttp( 1234):
+    {
+      re: /^([VDIWEFA])\/([^:()]+)\(\s*(\d+)\):[ ]?/,
+      map: function (m) { return { level: m[1], tag: m[2].trim(), pid: m[3] }; }
+    },
+    // D/OkHttp:
+    {
+      re: /^([VDIWEFA])\/([^:]+):[ ]?/,
+      map: function (m) { return { level: m[1], tag: m[2].trim() }; }
+    },
+    // 2026-10-26 17:08:10.123  1234-1234  Tag  com.pkg  D  content   (AS 新 Logcat 表格复制)
+    {
+      re: /^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2}[.,]\d{3})\s+(\d+)-(\d+)\s+(\S+)\s+(\S+)\s+([VDIWEFA])\s{2,}/,
+      map: function (m) { return { ts: m[1] + ' ' + m[2], pid: m[3], tid: m[4], tag: m[5], pkg: m[6], level: m[7] }; }
+    }
+  ];
+
+  function matchPrefix(line) {
+    var c = line.charAt(0);
+    var isDigit = c >= '0' && c <= '9';
+    var isLevel = 'VDIWEFA'.indexOf(c) >= 0;
+    if (!isDigit && !isLevel) return null;
+    for (var i = 0; i < PREFIX_PATTERNS.length; i++) {
+      var p = PREFIX_PATTERNS[i];
+      var m = p.re.exec(line);
+      if (m) {
+        var o = p.map(m);
+        o.matched = m[0].length;
+        return o;
+      }
+    }
+    return null;
+  }
+
+  /* =========================================================
+   * 2. JSON 边界扫描
+   * ========================================================= */
+  function scanBalanced(text, start) {
+    var depth = 0, inStr = false, quote = '', escFlag = false;
+    for (var i = start; i < text.length; i++) {
+      var c = text.charAt(i);
+      if (inStr) {
+        if (escFlag) { escFlag = false; continue; }
+        if (c === '\\') { escFlag = true; continue; }
+        if (c === quote) { inStr = false; }
+        continue;
+      }
+      if (c === '"' || c === "'") { inStr = true; quote = c; continue; }
+      if (c === '{' || c === '[') depth++;
+      else if (c === '}' || c === ']') {
+        depth--;
+        if (depth === 0) return { end: i + 1, balanced: true, inStr: false };
+      }
+    }
+    return { end: text.length, balanced: false, inStr: inStr };
+  }
+
+  function looksLikeJsonStart(text, i) {
+    var c = text.charAt(i);
+    var n = text.charAt(i + 1);
+    if (c === '{') return n === '"' || n === '}' || n === '' || n === ' ' || n === '\t' || n === '\n' || n === '\r';
+    if (c === '[') return n === '{' || n === '[' || n === '"' || n === ']' || n === '' || (n >= '0' && n <= '9') || n === '-' || n === ' ';
+    return false;
+  }
+
+  function jsonState(text) {
+    for (var i = 0; i < text.length; i++) {
+      var c = text.charAt(i);
+      if ((c === '{' || c === '[') && looksLikeJsonStart(text, i)) {
+        var r = scanBalanced(text, i);
+        return { has: true, complete: r.balanced, start: i, end: r.end, inStr: r.inStr };
+      }
+    }
+    return { has: false, complete: true, start: -1, end: -1, inStr: false };
+  }
+
+  /* ---- 中间丢段检测与修复 ----
+   * logcat 缓冲溢出时可能整段丢掉（不是尾部截断）。拼接处会出现"半个 key"，
+   * 例如 `..."accountDisabled":false,` + `pe":"GLOBAL"...`。
+   * 直接拼会让后续所有字段错位（key 跑到错误的层级），必须跳过残片重新对齐。
+   */
+  var LOST_MARK = '\u0000LOST\u0000';
+
+  function isLostSegment(prevText, nextText) {
+    var left = prevText.replace(/\s+$/, '');
+    var right = nextText.replace(/^\s+/, '');
+    if (!left || !right) return false;
+    var lastCh = left.charAt(left.length - 1);
+    // 左端必须停在 token 边界上，否则就是普通截断
+    if (lastCh !== ',' && lastCh !== '{' && lastCh !== '[' && lastCh !== ':') return false;
+
+    var firstCh = right.charAt(0);
+    // 合法的 JSON token 起始
+    if (firstCh === '"' || firstCh === '{' || firstCh === '[' ||
+        firstCh === '}' || firstCh === ']') return false;
+    if (firstCh === '-' || (firstCh >= '0' && firstCh <= '9')) return false;
+
+    if (/[A-Za-z_]/.test(firstCh)) {
+      var m = /^[A-Za-z_]\w*/.exec(right);
+      // xxx" → 残缺的 key 尾巴，说明中间丢了内容；否则可能是 true/false/null
+      if (m && right.charAt(m[0].length) === '"') return true;
+      return false;
+    }
+    return true;
+  }
+
+  /* 从残片起点扫到"重新对齐"的位置。
+   *
+   * 不能用括号深度扫描：残片开头缺了 `"`，引号奇偶性整体反了，
+   * 后面所有字符串配对都会错位，深度计算直接失效（踩过）。
+   *
+   * 改用结构锚点：缺失段一定吞掉了数组的 `[`，所以第一个
+   * `],"` 或 `]}` 就是数组真正的结束点，之后即回到外层结构。
+   */
+  function findRealign(text, start) {
+    var rest = text.slice(start);
+    var m = /\][ \t\r\n]*,[ \t\r\n]*"/.exec(rest);
+    if (m) return start + m.index + 1;
+    m = /\][ \t\r\n]*\}/.exec(rest);
+    if (m) return start + m.index + 1;
+    // 缺失段里没有数组时，退回到对象结束
+    m = /\}[ \t\r\n]*,[ \t\r\n]*"/.exec(rest);
+    if (m) return start + m.index + 1;
+    return text.length;
+  }
+
+  function repairLostSegments(text) {
+    if (text.indexOf(LOST_MARK) < 0) return { text: text, lost: 0 };
+    var pieces = [];
+    var i = 0, count = 0;
+    for (;;) {
+      var m = text.indexOf(LOST_MARK, i);
+      if (m < 0) { pieces.push(text.slice(i)); break; }
+      pieces.push(text.slice(i, m));
+      count++;
+      i = findRealign(text, m + LOST_MARK.length);
+      if (i >= text.length) break;
+    }
+    var out = pieces[0] || '';
+    for (var k = 1; k < pieces.length; k++) {
+      var right = pieces[k];
+      // 断点前以 , 结尾、对齐点以 , 开头 → 去重
+      if (/,\s*$/.test(out) && /^\s*,/.test(right)) {
+        right = right.replace(/^\s*,/, '');
+      }
+      out += right;
+    }
+    return { text: out, lost: count };
+  }
+
+  /* 剥掉长文本日志框架的包装标记：@long-text:"[response]..." <long_text_quote> ... </long_text_quote> */
+  function stripWrapper(s) {
+    if (s.indexOf('long_text_quote') < 0 && s.indexOf('@long-text') < 0) return s;
+    return s.replace(/@long-text:"[^"]*"/g, '').replace(/<\/?long_text_quote>/g, '');
+  }
+
+  /* =========================================================
+   * 3. 宽容 JSON 解析器（保留数字原文 + 支持 Kotlin toString）
+   * ========================================================= */
+  function parseLoose(src) {
+    var i = 0, n = src.length;
+
+    function ws() { while (i < n && /\s/.test(src.charAt(i))) i++; }
+    function peek() { return src.charAt(i); }
+
+    function parseValue() {
+      ws();
+      if (i >= n) return null;
+      var c = src.charAt(i);
+      if (c === '{') return parseObject(false);
+      if (c === '[') return parseArray();
+      if (c === '"' || c === "'") return parseString();
+      if (c === '-' || c === '+' || (c >= '0' && c <= '9')) return parseNumber();
+      var rest = src.substr(i, 12).toLowerCase();
+      if (rest.indexOf('true') === 0) { i += 4; return { type: 'boolean', value: true }; }
+      if (rest.indexOf('false') === 0) { i += 5; return { type: 'boolean', value: false }; }
+      if (rest.indexOf('null') === 0) { i += 4; return { type: 'null' }; }
+      if (rest.indexOf('nil') === 0) { i += 3; return { type: 'null' }; }
+      if (rest.indexOf('undefined') === 0) { i += 9; return { type: 'null' }; }
+      var m = /^[A-Za-z_$][\w$]*\s*\(/.exec(src.substr(i));
+      if (m) { i += m[0].length; return parseObject(true); }
+      return parseBare();
+    }
+
+    function parseObject(isKotlin) {
+      if (!isKotlin) i++; // '{'
+      var entries = [];
+      var guard = 0;
+      while (i < n && guard++ < 200000) {
+        ws();
+        if (i >= n) break;
+        var c = src.charAt(i);
+        if (c === '}' || (isKotlin && c === ')')) { i++; break; }
+        if (c === ',') { i++; continue; }
+
+        var key;
+        if (c === '"' || c === "'") {
+          key = parseString().value;
+        } else {
+          var km = /^[^:=,{}\[\]\s]+/.exec(src.substr(i));
+          if (!km) { i++; continue; }
+          key = km[0];
+          i += key.length;
+        }
+        ws();
+        if (src.charAt(i) === ':' || src.charAt(i) === '=') i++;
+        else if (i < n && src.charAt(i) !== ',' && src.charAt(i) !== '}' && src.charAt(i) !== ')') {
+          // 容忍异常，直接吞一个字符
+        }
+        var v = parseValue();
+        if (v !== null) entries.push({ key: key, value: v });
+        ws();
+        if (src.charAt(i) === ',') { i++; continue; }
+        if (src.charAt(i) === '}' || (isKotlin && src.charAt(i) === ')')) { i++; break; }
+        if (i >= n) break;
+        // 无逗号分隔（proto 风格 / 宽松 JSON）：直接尝试下一个键值对，
+        // 不要在这里 i++，否则会吞掉下一个字段名的首字符
+      }
+      return { type: 'object', entries: entries };
+    }
+
+    function parseArray() {
+      i++; // '['
+      var items = [];
+      var guard = 0;
+      while (i < n && guard++ < 200000) {
+        ws();
+        if (i >= n) break;
+        var c = src.charAt(i);
+        if (c === ']') { i++; break; }
+        if (c === ',') { i++; continue; }
+        var v = parseValue();
+        if (v !== null) items.push(v);
+        ws();
+        if (src.charAt(i) === ',') { i++; continue; }
+        if (src.charAt(i) === ']') { i++; break; }
+        if (i >= n) break;
+      }
+      return { type: 'array', items: items };
+    }
+
+    function parseString() {
+      var quote = src.charAt(i);
+      i++;
+      var out = '';
+      while (i < n) {
+        var c = src.charAt(i);
+        if (c === '\\') {
+          var nx = src.charAt(i + 1);
+          if (nx === 'n') out += '\n';
+          else if (nx === 't') out += '\t';
+          else if (nx === 'r') out += '\r';
+          else if (nx === 'b') out += '\b';
+          else if (nx === 'f') out += '\f';
+          else if (nx === 'u') {
+            var hex = src.substr(i + 2, 4);
+            var code = parseInt(hex, 16);
+            out += isNaN(code) ? '' : String.fromCharCode(code);
+            i += 6;
+            continue;
+          } else out += nx;
+          i += 2;
+          continue;
+        }
+        if (c === quote) { i++; return { type: 'string', value: out }; }
+        if (c === '\n') break;
+        out += c;
+        i++;
+      }
+      return { type: 'string', value: out, unterminated: true };
+    }
+
+    function parseNumber() {
+      var start = i;
+      if (src.charAt(i) === '-' || src.charAt(i) === '+') i++;
+      while (i < n && /[0-9.eE+\-]/.test(src.charAt(i))) {
+        var c = src.charAt(i);
+        if ((c === '+' || c === '-') && !/[eE]/.test(src.charAt(i - 1))) break;
+        i++;
+      }
+      var raw = src.slice(start, i);
+      if (!raw || raw === '-' || raw === '+') { i = start + 1; raw = '0'; }
+      return { type: 'number', raw: raw };
+    }
+
+    function parseBare() {
+      var start = i;
+      while (i < n) {
+        var c = src.charAt(i);
+        if (c === ',' || c === ')' || c === '}' || c === ']' || c === '\n') break;
+        i++;
+      }
+      var txt = src.slice(start, i).trim();
+      if (!txt && i >= n) return null;
+      if (/^-?\d+$/.test(txt)) return { type: 'number', raw: txt };
+      if (/^-?\d*\.\d+$/.test(txt)) return { type: 'number', raw: txt };
+      if (txt === 'true' || txt === 'false') return { type: 'boolean', value: txt === 'true' };
+      if (txt === 'null') return { type: 'null' };
+      return { type: 'string', value: txt, bare: true };
+    }
+
+    var node = parseValue();
+    return node;
+  }
+
+  /* =========================================================
+   * 3.5 Protocol Buffer 支持
+   * ========================================================= */
+
+  /* 重复字段合并：TextFormat 里 repeated 字段会重复出现同一个 key */
+  function groupRepeated(entries) {
+    var map = new Map(), order = [];
+    entries.forEach(function (e) {
+      if (!map.has(e.key)) { map.set(e.key, []); order.push(e.key); }
+      map.get(e.key).push(e.value);
+    });
+    return order.map(function (k) {
+      var vals = map.get(k);
+      if (vals.length === 1) return { key: k, value: vals[0] };
+      return { key: k, value: { type: 'array', items: vals } };
+    });
+  }
+
+  /* ---- 3.5.1 TextFormat（proto.toString() 的输出） ---- */
+  function looksLikeProtoLine(s) {
+    var t = s.trim();
+    if (!t) return false;
+    return /^[A-Za-z_][\w.]*\s*(:\s*\S|\{|\<)/.test(t) || t === '}' || t === '>';
+  }
+
+  function looksLikeProtoText(text) {
+    var lines = text.split(/\r?\n/).map(function (l) { return l.trim(); })
+      .filter(function (l) { return l && l.charAt(0) !== '#'; });
+    if (lines.length < 2) return false;
+    var ok = 0, hasBlock = false;
+    for (var i = 0; i < lines.length; i++) {
+      var l = lines[i];
+      if (/^[A-Za-z_][\w.]*\s*(:\s*\S|\{|\<)/.test(l)) {
+        ok++;
+        if (/[\{<]\s*$/.test(l)) hasBlock = true;
+      } else if (l === '}' || l === '>') ok++;
+      else return false;
+    }
+    // 少于 3 行又没有嵌套块时，容易把普通 "key: value" 日志误判成 protobuf
+    return ok >= 3 || (ok >= 2 && hasBlock);
+  }
+
+  function parseProtoText(src) {
+    var i = 0, n = src.length;
+
+    function skipWs() {
+      for (;;) {
+        while (i < n && /\s/.test(src.charAt(i))) i++;
+        if (src.charAt(i) === '#') {
+          while (i < n && src.charAt(i) !== '\n') i++;
+          continue;
+        }
+        break;
+      }
+    }
+
+    function readIdent() {
+      var m = /^[A-Za-z_][\w.]*/.exec(src.substr(i));
+      if (!m) return null;
+      i += m[0].length;
+      return m[0];
+    }
+
+    function readString() {
+      var q = src.charAt(i);
+      i++;
+      var out = '';
+      while (i < n) {
+        var c = src.charAt(i);
+        if (c === '\\') {
+          var nx = src.charAt(i + 1);
+          if (nx === 'n') out += '\n';
+          else if (nx === 't') out += '\t';
+          else if (nx === 'r') out += '\r';
+          else if (nx === 'x') {
+            var h = src.substr(i + 2, 2);
+            var code = parseInt(h, 16);
+            out += isNaN(code) ? '' : String.fromCharCode(code);
+            i += 4;
+            continue;
+          } else if (nx === '0') out += '\0';
+          else out += nx;
+          i += 2;
+          continue;
+        }
+        if (c === q) { i++; return { type: 'string', value: out }; }
+        out += c;
+        i++;
+      }
+      return { type: 'string', value: out };
+    }
+
+    function readScalar() {
+      skipWs();
+      var c = src.charAt(i);
+      if (c === '"' || c === "'") return readString();
+      var m = /^-?(?:0x[0-9a-fA-F]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/.exec(src.substr(i));
+      if (m) {
+        i += m[0].length;
+        return { type: 'number', raw: m[0] };
+      }
+      var id = readIdent();
+      if (id === null) { i++; return { type: 'string', value: '' }; }
+      if (id === 'true') return { type: 'boolean', value: true };
+      if (id === 'false') return { type: 'boolean', value: false };
+      // enum 值：TextFormat 里不带引号的标识符
+      return { type: 'string', value: id, isEnum: true };
+    }
+
+    function readList() {
+      i++; // '['
+      var items = [];
+      for (;;) {
+        skipWs();
+        if (i >= n) break;
+        if (src.charAt(i) === ']') { i++; break; }
+        if (src.charAt(i) === ',') { i++; continue; }
+        items.push(readScalar());
+      }
+      return items;
+    }
+
+    function readMessage(endChar) {
+      var raw = [];
+      var guard = 0;
+      for (;;) {
+        if (guard++ > 100000) break;
+        skipWs();
+        if (i >= n) break;
+        if (endChar && src.charAt(i) === endChar) { i++; break; }
+        var name = readIdent();
+        if (!name) { i++; continue; }
+        skipWs();
+        var c = src.charAt(i);
+        if (c === ':') {
+          i++;
+          skipWs();
+          if (src.charAt(i) === '[') {
+            readList().forEach(function (v) { raw.push({ key: name, value: v }); });
+          } else {
+            raw.push({ key: name, value: readScalar() });
+          }
+        } else if (c === '{' || c === '<') {
+          var close = c === '{' ? '}' : '>';
+          i++;
+          raw.push({ key: name, value: readMessage(close) });
+        } else {
+          i++;
+        }
+      }
+      return { type: 'object', entries: groupRepeated(raw) };
+    }
+
+    return readMessage(null);
+  }
+
+  /* ---- 3.5.2 wire format 解码（无 .proto 也能解出结构） ---- */
+  function looksLikeHexDump(text) {
+    var t = text.trim();
+    if (!t) return false;
+    var cleaned = t.replace(/0x/gi, '').replace(/[\s,;:|]/g, '');
+    if (!/^[0-9a-fA-F]+$/.test(cleaned)) return false;
+    if (cleaned.length % 2 !== 0) return false;
+    if (cleaned.length < 8) return false;
+    var hasSep = /[\s,;:]/.test(t);
+    if (!hasSep && cleaned.length < 20) return false;
+    return true;
+  }
+
+  function hexToBytes(text) {
+    var cleaned = text.trim().replace(/0x/gi, '').replace(/[\s,;:|]/g, '');
+    var out = new Uint8Array(cleaned.length / 2);
+    for (var i = 0; i < out.length; i++) {
+      out[i] = parseInt(cleaned.substr(i * 2, 2), 16);
+    }
+    return out;
+  }
+
+  function toHexText(bytes) {
+    var out = [];
+    for (var i = 0; i < bytes.length; i++) {
+      out.push(('0' + bytes[i].toString(16)).slice(-2));
+    }
+    return out.join(' ');
+  }
+
+  function readVarint(buf, pos) {
+    var result = BigInt(0), shift = BigInt(0), i = pos;
+    while (i < buf.length) {
+      var b = buf[i++];
+      result |= BigInt(b & 0x7f) << shift;
+      if ((b & 0x80) === 0) return { value: result, next: i };
+      shift += BigInt(7);
+      if (shift > BigInt(63)) return null;
+    }
+    return null;
+  }
+
+  function numNode(raw) {
+    return { type: 'number', raw: raw };
+  }
+
+  function tryUtf8(bytes) {
+    try {
+      var s = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+      if (!s) return null;
+      var printable = 0;
+      for (var i = 0; i < s.length; i++) {
+        var c = s.charCodeAt(i);
+        if (c === 9 || c === 10 || c === 13 || (c >= 32 && c !== 127)) printable++;
+      }
+      if (printable / s.length < 0.9) return null;
+      return s;
+    } catch (e) { return null; }
+  }
+
+  function fixedNode(buf, off, size) {
+    var dv = new DataView(buf.buffer, buf.byteOffset + off, size);
+    if (size === 8) {
+      var i64 = dv.getBigInt64(0, true);
+      if (i64 >= BigInt(0) && i64 <= BigInt('9007199254740991')) return numNode(String(i64));
+      var d = dv.getFloat64(0, true);
+      if (isFinite(d) && d !== 0 && Math.abs(d) < 1e15) return numNode(String(d));
+      return numNode(String(i64));
+    }
+    var i32 = dv.getInt32(0, true);
+    if (i32 >= 0) return numNode(String(i32));
+    var f = dv.getFloat32(0, true);
+    if (isFinite(f) && f !== 0 && Math.abs(f) < 1e10) return numNode(String(f));
+    return numNode(String(i32));
+  }
+
+  function lengthDelimitedNode(sub, depth) {
+    if (sub.length === 0) return { type: 'string', value: '' };
+    // 能读成文本就当字符串（string / bytes 字段）
+    var s = tryUtf8(sub);
+    if (s !== null) return { type: 'string', value: s };
+    // 否则尝试当嵌套 message
+    var nested = decodeProtoMessage(sub, depth + 1);
+    if (nested && nested.entries.length) return nested;
+    return { type: 'string', value: toHexText(sub), isBytes: true };
+  }
+
+  function decodeProtoMessage(buf, depth) {
+    if (depth > 12) return null;
+    var i = 0, entries = [], count = 0, guard = 0;
+    while (i < buf.length) {
+      if (guard++ > 50000) return null;
+      var t = readVarint(buf, i);
+      if (!t) return null;
+      i = t.next;
+      var tag = Number(t.value);
+      if (!isFinite(tag) || tag < 8) return null;
+      var fieldNum = tag >>> 3;
+      var wire = tag & 7;
+      if (fieldNum < 1 || fieldNum > 100000) return null;
+
+      var val = null;
+      if (wire === 0) {
+        var v = readVarint(buf, i);
+        if (!v) return null;
+        i = v.next;
+        val = numNode(String(v.value));
+      } else if (wire === 1) {
+        if (i + 8 > buf.length) return null;
+        val = fixedNode(buf, i, 8);
+        i += 8;
+      } else if (wire === 2) {
+        var l = readVarint(buf, i);
+        if (!l) return null;
+        i = l.next;
+        var len = Number(l.value);
+        if (len < 0 || i + len > buf.length) return null;
+        var sub = buf.subarray(i, i + len);
+        i += len;
+        val = lengthDelimitedNode(sub, depth);
+        if (val === null) return null;
+      } else if (wire === 5) {
+        if (i + 4 > buf.length) return null;
+        val = fixedNode(buf, i, 4);
+        i += 4;
+      } else {
+        return null; // 3/4 是已废弃的 group
+      }
+      entries.push({ key: 'field_' + fieldNum, value: val });
+      count++;
+    }
+    if (!count) return null;
+    return { type: 'object', entries: groupRepeated(entries) };
+  }
+
+  function decodeHexDump(text) {
+    var bytes = hexToBytes(text);
+    if (!bytes.length) return null;
+    return decodeProtoMessage(bytes, 0);
+  }
+
+  /* 扁平 TextFormat：每行一个字段、没有 {}，logcat 里每条是独立一行，需要按 tag 重新拼 */
+  function mergeFlatProto(contents) {
+    if (!contents || contents.length < 2) return null;
+    for (var i = 0; i < contents.length; i++) {
+      if (!looksLikeProtoLine(contents[i])) return null;
+    }
+    var merged = contents.join('\n');
+    if (!looksLikeProtoText(merged)) return null;
+    try {
+      var pb = parseProtoText(merged);
+      if (pb && pb.entries.length >= 2) {
+        pb.kind = 'proto-text';
+        return pb;
+      }
+    } catch (e) { /* ignore */ }
+    return null;
+  }
+
+  /* =========================================================
+   * 4. 从一段日志文本里提取 JSON 节点
+   * ========================================================= */
+  function extractNodes(content) {
+    var nodes = [];
+    var trimmed = content.trim();
+    if (!trimmed) return nodes;
+
+    // ① Kotlin/Java toString：Name(a=1, b=2)
+    var kt = /^[A-Za-z_$][\w$.]*\s*\(/.exec(trimmed);
+    if (kt) {
+      try {
+        var node = parseLoose(trimmed);
+        if (node && node.type === 'object' && node.entries.length) {
+          node.kind = 'toString';
+          return [node];
+        }
+      } catch (e) { /* fallthrough */ }
+    }
+
+    // ② protobuf TextFormat：id: 1 / name: "x" / list { ... }
+    if (looksLikeProtoText(trimmed)) {
+      try {
+        var pb = parseProtoText(trimmed);
+        // 顶层只有一个字段也正常（user { ... } 这种包一层的打印）
+        if (pb && pb.entries.length >= 1) {
+          pb.kind = 'proto-text';
+          return [pb];
+        }
+      } catch (e) { /* fallthrough */ }
+    }
+
+    // ③ JSON（可能夹在日志文字里，也可能有多段）
+    var idx = 0;
+    var guard = 0;
+    while (idx < content.length && guard++ < 200) {
+      var found = -1;
+      for (var i = idx; i < content.length; i++) {
+        var c = content.charAt(i);
+        if ((c === '{' || c === '[') && looksLikeJsonStart(content, i)) { found = i; break; }
+      }
+      if (found < 0) break;
+      var r = scanBalanced(content, found);
+      var frag = content.slice(found, r.end);
+      if (frag.length >= 2) {
+        try {
+          var nd = parseLoose(frag);
+          if (nd && (nd.type === 'object' || nd.type === 'array')) {
+            nd.kind = 'json';
+            nodes.push(nd);
+          }
+        } catch (e) { /* ignore */ }
+      }
+      idx = r.end > found ? r.end : found + 1;
+    }
+    if (nodes.length) return nodes;
+
+    // ④ protobuf wire format（hex dump / byte array）
+    if (looksLikeHexDump(trimmed)) {
+      var dec = decodeHexDump(trimmed);
+      if (dec && dec.entries.length) {
+        dec.kind = 'proto-hex';
+        return [dec];
+      }
+    }
+
+    return nodes;
+  }
+
+  /* =========================================================
+   * 5. 日志行 → 条目 → 合并截断
+   * ========================================================= */
+  function parseLog(raw) {
+    var stats = { lines: 0, entries: 0, merged: 0, lost: 0, tags: {} };
+    var lines = raw.split(/\r?\n/);
+    var entries = [];
+
+    for (var li = 0; li < lines.length; li++) {
+      var line = lines[li];
+      if (!line.trim()) continue;
+      stats.lines++;
+
+      var p = matchPrefix(line);
+      var content = stripWrapper(p ? line.slice(p.matched) : line);
+      var tag = p ? (p.tag || '') : '';
+      var level = p ? (p.level || '') : '';
+
+      if (!content.trim()) continue;
+      if (tag) stats.tags[tag] = true;
+
+      // 上一条还没闭合 → 这一行是它的续条（无论带不带前缀）
+      var last = entries[entries.length - 1];
+      if (last) {
+        var st = jsonState(last.content);
+        if (st.has && !st.complete) {
+          var tagOk = !tag || !last.tag || tag === last.tag;
+          if (tagOk) {
+            var sep;
+            if (st.inStr) {
+              sep = '';                       // 断在字符串中间，直接接
+            } else if (isLostSegment(last.content, content)) {
+              sep = LOST_MARK;                // 中间丢段，先标记，稍后修复
+              stats.lost++;
+            } else {
+              sep = '\n';                     // 断在 token 之间，补换行
+            }
+            last.content += sep + content;
+            stats.merged++;
+            continue;
+          }
+        }
+      }
+
+      entries.push({
+        tag: tag,
+        level: level,
+        ts: p ? (p.ts || '') : '',
+        content: content
+      });
+    }
+
+    // 修复拼接处的丢段残片
+    if (stats.lost) {
+      var total = 0;
+      entries.forEach(function (e) {
+        var r = repairLostSegments(e.content);
+        e.content = r.text;
+        total += r.lost;
+      });
+      stats.lost = total;
+    }
+
+    stats.entries = entries.length;
+    return { entries: entries, stats: stats };
+  }
+
+  /* =========================================================
+   * 6. AST → 格式化 JSON
+   * ========================================================= */
+  function stringifyNode(node, indent, depth) {
+    var pad = new Array(depth + 1).join(indent);
+    var padIn = new Array(depth + 2).join(indent);
+
+    if (!node) return 'null';
+    switch (node.type) {
+      case 'object': {
+        if (!node.entries.length) return '{}';
+        var lines = node.entries.map(function (en) {
+          return padIn + JSON.stringify(en.key) + ': ' + stringifyNode(en.value, indent, depth + 1);
+        });
+        return '{\n' + lines.join(',\n') + '\n' + pad + '}';
+      }
+      case 'array': {
+        if (!node.items.length) return '[]';
+        var arr = node.items.map(function (v) {
+          return padIn + stringifyNode(v, indent, depth + 1);
+        });
+        return '[\n' + arr.join(',\n') + '\n' + pad + ']';
+      }
+      case 'string': return JSON.stringify(node.value);
+      case 'number': return node.raw;
+      case 'boolean': return String(node.value);
+      case 'null': return 'null';
+      default: return 'null';
+    }
+  }
+
+  /* =========================================================
+   * 7. AST → 类型 Schema
+   * ========================================================= */
+  function numberType(raw) {
+    if (/[.eE]/.test(raw)) return { k: 'double' };
+    var v = Number(raw);
+    if (v >= -2147483648 && v <= 2147483647) return { k: 'int' };
+    return { k: 'long' };
+  }
+
+  function typeOf(node) {
+    if (!node) return { k: 'null' };
+    switch (node.type) {
+      case 'object': {
+        var fields = node.entries.map(function (en) {
+          return { name: en.key, type: typeOf(en.value), optional: false };
+        });
+        return { k: 'obj', fields: fields };
+      }
+      case 'array': {
+        var item = null;
+        for (var i = 0; i < node.items.length; i++) {
+          var t = typeOf(node.items[i]);
+          item = item ? mergeType(item, t) : t;
+        }
+        return { k: 'arr', item: item };
+      }
+      case 'string': return { k: 'str' };
+      case 'number': return numberType(node.raw);
+      case 'boolean': return { k: 'bool' };
+      case 'null': return { k: 'null' };
+      default: return { k: 'any' };
+    }
+  }
+
+  var NUM_RANK = { int: 1, long: 2, double: 3 };
+
+  function mergeType(a, b) {
+    if (!a) return b;
+    if (!b) return a;
+    if (a.k === 'null') return { k: b.k, item: b.item, fields: b.fields, nullable: true };
+    if (b.k === 'null') return { k: a.k, item: a.item, fields: a.fields, nullable: true };
+
+    if (a.k === b.k) {
+      if (a.k === 'obj') return mergeObj(a, b);
+      if (a.k === 'arr') {
+        if (!a.item) return { k: 'arr', item: b.item };
+        if (!b.item) return { k: 'arr', item: a.item };
+        return { k: 'arr', item: mergeType(a.item, b.item) };
+      }
+      return a;
+    }
+    if (NUM_RANK[a.k] && NUM_RANK[b.k]) {
+      return { k: NUM_RANK[a.k] >= NUM_RANK[b.k] ? a.k : b.k };
+    }
+    return { k: 'any', nullable: true };
+  }
+
+  function mergeObj(a, b) {
+    var map = new Map();
+    var order = [];
+    a.fields.forEach(function (f) { map.set(f.name, { name: f.name, type: f.type, optional: f.optional }); order.push(f.name); });
+    b.fields.forEach(function (f) {
+      if (map.has(f.name)) {
+        var cur = map.get(f.name);
+        map.set(f.name, { name: f.name, type: mergeType(cur.type, f.type), optional: cur.optional && f.optional });
+      } else {
+        map.set(f.name, { name: f.name, type: f.type, optional: true });
+        order.push(f.name);
+      }
+    });
+    var inB = {};
+    b.fields.forEach(function (f) { inB[f.name] = true; });
+    order.forEach(function (nm) {
+      if (!inB[nm]) map.get(nm).optional = true;
+    });
+    return { k: 'obj', fields: order.map(function (nm) { return map.get(nm); }) };
+  }
+
+  /* =========================================================
+   * 8. Schema → Kotlin
+   * ========================================================= */
+  var TS_HINT = /(^|_)(time|timestamp|ts|date|expires?at|create_?time|update_?time)(_|$)|(_at|At|Time|Ts|Timestamp)$/;
+
+  /* 不能用作 data class 名的类型：Kotlin 标准库 + Android 高频类（同文件会遮蔽） */
+  var RESERVED_TYPE_NAMES = new Set(('List Map Set MutableList MutableMap MutableSet String Int Long Double ' +
+    'Float Boolean Char Byte Short Any Unit Nothing Pair Triple Array Number Comparable Iterable Collection ' +
+    'Sequence Enum Annotation Throwable Exception Error Result Function Lazy Regex CharSequence StringBuilder ' +
+    'BooleanArray IntArray LongArray DoubleArray FloatArray Object Void Class ' +
+    'Activity Fragment View Context Intent Bundle Service Application Handler Dialog Adapter ViewModel').split(' '));
+
+  function genKotlin(groups, opts) {
+    var usedNames = new Set();
+    var classes = [];
+
+    function pickName(base) {
+      var name = pascal(base || 'Item');
+      if (!/^[A-Z]/.test(name)) name = 'T' + name;
+      if (RESERVED_TYPE_NAMES.has(name)) name = name + 'Item';
+      var cand = name, i = 2;
+      while (usedNames.has(cand)) { cand = name + i; i++; }
+      usedNames.add(cand);
+      return cand;
+    }
+
+    /* tag → 类名前缀：取最后一段，如 okhttp.OkHttpClient → OkHttpClient */
+    function tagToName(tag) {
+      if (!tag) return '';
+      var seg = tag.split(/[.\/\-]/).filter(Boolean).pop() || '';
+      if (!/^[A-Za-z_]\w*$/.test(seg)) return '';
+      return pascal(seg);
+    }
+
+    function isTsField(name, type) {
+      if (!opts.tsLong) return false;
+      if (type.k !== 'int' && type.k !== 'long') return false;
+      return TS_HINT.test(name);
+    }
+
+    function renderType(t, hint) {
+      if (!t) return 'Any';
+      switch (t.k) {
+        case 'obj': return buildClass(t, hint);
+        case 'arr': {
+          if (!t.item) return 'List<Any>';
+          return 'List<' + renderType(t.item, singular(hint)) + '>';
+        }
+        case 'str': return 'String';
+        case 'int': return 'Int';
+        case 'long': return 'Long';
+        case 'double': return 'Double';
+        case 'bool': return 'Boolean';
+        case 'any': return 'Any';
+        case 'null': return 'Any';
+        default: return 'Any';
+      }
+    }
+
+    function buildClass(schema, hint) {
+      var clsName = pickName(hint);
+      var cls = { name: clsName, fields: [], group: curGroup };
+      classes.push(cls);
+      schema.fields.forEach(function (f) {
+        var ktName = opts.caseMode === 'keep' ? f.name : camel(f.name);
+        if (!ktName) ktName = 'field';
+        if (HARD_KEYWORDS.has(ktName)) ktName = '`' + ktName + '`';
+
+        var t = f.type;
+        var base = renderType(t, f.name);
+
+        var nullable;
+        if (opts.nullMode === 'all') nullable = true;
+        else if (opts.nullMode === 'none') nullable = false;
+        else nullable = f.optional || t.k === 'null' || t.nullable === true;
+
+        var finalType = base + (nullable ? '?' : '');
+        if (isTsField(f.name, t)) {
+          if (base === 'Int') finalType = 'Long' + (nullable ? '?' : '');
+        }
+
+        cls.fields.push({
+          ktName: ktName,
+          orig: f.name,
+          type: finalType,
+          nullable: nullable,
+          base: base,
+          emptyArr: t.k === 'arr' && !t.item,
+          alwaysNull: t.k === 'null'
+        });
+      });
+      return clsName;
+    }
+
+    var rootNotes = [];
+    var curGroup = 0;
+
+    groups.forEach(function (g, gi) {
+      curGroup = gi;
+      var schema = null;
+      g.nodes.forEach(function (nd) {
+        var t = typeOf(nd);
+        schema = schema ? mergeType(schema, t) : t;
+      });
+      if (!schema) return;
+
+      var rootHint = opts.rootName || 'Response';
+      if (groups.length > 1) {
+        var tn = tagToName(g.tag);
+        rootHint = tn ? tn + pascal(rootHint) : rootHint + (gi + 1);
+      }
+
+      if (schema.k === 'obj') {
+        buildClass(schema, rootHint);
+      } else if (schema.k === 'arr') {
+        var itemName = schema.item ? renderType(schema.item, singular(rootHint)) : 'Any';
+        rootNotes.push({
+          group: gi,
+          text: (groups.length > 1 ? '// [' + g.tag + '] ' : '// ') +
+            '根节点是数组，解析时请用 List<' + itemName + '>'
+        });
+      } else {
+        rootNotes.push({
+          group: gi,
+          text: (groups.length > 1 ? '// [' + g.tag + '] ' : '// ') +
+            '根节点是基础类型 ' + renderType(schema, rootHint) + '，无需生成 data class'
+        });
+      }
+    });
+
+    // 生成代码
+    var lines = [];
+    lines.push('// Generated by logcat2kt');
+    if (opts.anno === 'gson') lines.push('// deps: com.google.code.gson:gson');
+    if (opts.anno === 'kotlinx') {
+      lines.push('// deps: org.jetbrains.kotlinx:kotlinx-serialization-json');
+      lines.push('// import kotlinx.serialization.SerialName');
+      lines.push('// import kotlinx.serialization.Serializable');
+    }
+    if (opts.anno === 'moshi') lines.push('// deps: com.squareup.moshi:moshi-kotlin');
+
+    function emitClass(cls) {
+      var arr = [];
+      if (opts.anno === 'kotlinx') arr.push('@Serializable');
+      arr.push('data class ' + cls.name + '(');
+      var fieldLines = cls.fields.map(function (f, idx) {
+        var ann = '';
+        if (opts.anno === 'gson' && f.ktName.replace(/`/g, '') !== f.orig) {
+          ann = '@SerializedName(' + JSON.stringify(f.orig) + ') ';
+        } else if (opts.anno === 'kotlinx' && f.ktName.replace(/`/g, '') !== f.orig) {
+          ann = '@SerialName(' + JSON.stringify(f.orig) + ') ';
+        } else if (opts.anno === 'moshi' && f.ktName.replace(/`/g, '') !== f.orig) {
+          ann = '@Json(name = ' + JSON.stringify(f.orig) + ') ';
+        }
+        var def = f.nullable ? ' = null' : '';
+        var line = '    ' + ann + 'val ' + f.ktName + ': ' + f.type + def +
+          (idx < cls.fields.length - 1 ? ',' : '');
+        if (f.emptyArr) line += '  // 空数组，元素类型无法推断';
+        else if (f.alwaysNull) line += '  // 样本中始终为 null，类型待确认';
+        return line;
+      });
+      arr.push(fieldLines.join('\n'));
+      arr.push(')');
+      return arr.join('\n');
+    }
+
+    var head = lines.join('\n');
+    var parts = [head];
+
+    if (rootNotes.length) {
+      parts.push(rootNotes.map(function (n) { return n.text; }).join('\n'));
+    }
+
+    var lastGroup = -1;
+    classes.forEach(function (cls) {
+      if (groups.length > 1 && cls.group !== lastGroup) {
+        var g = groups[cls.group];
+        parts.push('// ---- 来源: ' + g.tag + ' (' + g.nodes.length + ' 个 JSON) ----');
+        lastGroup = cls.group;
+      }
+      parts.push(emitClass(cls));
+    });
+
+    return parts.join('\n\n') + '\n';
+  }
+
+  /* =========================================================
+   * 9. 高亮
+   * ========================================================= */
+  function hlKotlin(src) {
+    var out = '', i = 0;
+    while (i < src.length) {
+      var c = src.charAt(i);
+      if (c === '/' && src.charAt(i + 1) === '/') {
+        var e = src.indexOf('\n', i);
+        var j = e === -1 ? src.length : e;
+        out += '<span class="tok-com">' + esc(src.slice(i, j)) + '</span>';
+        i = j; continue;
+      }
+      if (c === '"') {
+        var k = i + 1;
+        while (k < src.length && !(src.charAt(k) === '"' && src.charAt(k - 1) !== '\\')) k++;
+        out += '<span class="tok-str">' + esc(src.slice(i, k + 1)) + '</span>';
+        i = k + 1; continue;
+      }
+      if (c === '@') {
+        var am = /^@\w+/.exec(src.slice(i));
+        if (am) { out += '<span class="tok-anno">' + am[0] + '</span>'; i += am[0].length; continue; }
+      }
+      if (c === '`') {
+        var be = src.indexOf('`', i + 1);
+        if (be === -1) { out += esc(src.slice(i)); break; }
+        out += '<span class="tok-str">' + esc(src.slice(i, be + 1)) + '</span>';
+        i = be + 1; continue;
+      }
+      if (/[A-Za-z_]/.test(c)) {
+        var wm2 = /^[A-Za-z_]\w*/.exec(src.slice(i));
+        var w2 = wm2[0];
+        if (KEYWORDS.has(w2)) out += '<span class="tok-kw">' + w2 + '</span>';
+        else if (/^[A-Z]/.test(w2)) out += '<span class="tok-type">' + w2 + '</span>';
+        else out += esc(w2);
+        i += w2.length; continue;
+      }
+      out += esc(c); i++;
+    }
+    return out;
+  }
+
+  /* =========================================================
+   * 9.5 可折叠树渲染
+   * ========================================================= */
+  var NODE_LIMIT = 6000;
+
+  function countNodes(node) {
+    if (!node) return 0;
+    if (node.type === 'object') {
+      var n = 1;
+      for (var i = 0; i < node.entries.length; i++) n += countNodes(node.entries[i].value);
+      return n;
+    }
+    if (node.type === 'array') {
+      var m = 1;
+      for (var j = 0; j < node.items.length; j++) m += countNodes(node.items[j]);
+      return m;
+    }
+    return 1;
+  }
+
+  function makeComma(cls) {
+    var s = document.createElement('span');
+    s.className = cls || 'tcomma';
+    s.textContent = ',';
+    return s;
+  }
+
+  function makeLeaf(node) {
+    var s = document.createElement('span');
+    if (node.type === 'string') {
+      if (node.isEnum) {
+        s.className = 'tok-lit';
+        s.textContent = node.value;
+        s.title = 'enum 值（TextFormat 里不带引号）';
+      } else {
+        s.className = 'tok-str';
+        s.textContent = JSON.stringify(node.value);
+        if (node.isBytes) s.title = 'bytes，无法确认编码，已按 hex 展示';
+      }
+    } else if (node.type === 'number') {
+      s.className = 'tok-num';
+      s.textContent = node.raw;
+    } else if (node.type === 'boolean') {
+      s.className = 'tok-lit';
+      s.textContent = String(node.value);
+    } else {
+      s.className = 'tok-lit';
+      s.textContent = 'null';
+    }
+    return s;
+  }
+
+  function buildNode(node, key, isLast) {
+    var wrap = document.createElement('div');
+    wrap.className = 'tn';
+
+    var line = document.createElement('div');
+    line.className = 'tl';
+
+    var isContainer = (node.type === 'object' && node.entries.length > 0) ||
+                      (node.type === 'array' && node.items.length > 0);
+
+    var caret = document.createElement('span');
+    caret.className = 'tc' + (isContainer ? '' : ' leaf');
+    caret.textContent = '▾';
+    line.appendChild(caret);
+
+    if (key !== null && key !== undefined) {
+      var k = document.createElement('span');
+      k.className = 'tok-key';
+      k.textContent = JSON.stringify(key);
+      line.appendChild(k);
+      var colon = document.createElement('span');
+      colon.className = 'tp';
+      colon.textContent = ': ';
+      line.appendChild(colon);
+    }
+
+    if (!isContainer) {
+      if (node.type === 'object' || node.type === 'array') {
+        var empty = document.createElement('span');
+        empty.className = 'tb';
+        empty.textContent = node.type === 'object' ? '{}' : '[]';
+        line.appendChild(empty);
+      } else {
+        line.appendChild(makeLeaf(node));
+      }
+      if (!isLast) line.appendChild(makeComma());
+      wrap.appendChild(line);
+      return wrap;
+    }
+
+    var open = document.createElement('span');
+    open.className = 'tb tb-open';
+    open.textContent = node.type === 'object' ? '{' : '[';
+    line.appendChild(open);
+
+    var sum = document.createElement('span');
+    sum.className = 'tm';
+    var cnt = node.type === 'object' ? node.entries.length : node.items.length;
+    sum.textContent = (node.type === 'object' ? '{ … } ' : '[ … ] ') + cnt +
+      (node.type === 'object' ? ' 个字段' : ' 项');
+    line.appendChild(sum);
+
+    if (!isLast) line.appendChild(makeComma('tcomma tf'));
+
+    wrap.appendChild(line);
+
+    var body = document.createElement('div');
+    body.className = 'tc-body';
+    if (node.type === 'object') {
+      node.entries.forEach(function (en, i) {
+        body.appendChild(buildNode(en.value, en.key, i === node.entries.length - 1));
+      });
+    } else {
+      node.items.forEach(function (it, i) {
+        body.appendChild(buildNode(it, null, i === node.items.length - 1));
+      });
+    }
+    wrap.appendChild(body);
+
+    var end = document.createElement('div');
+    end.className = 'tl tl-end';
+    var sp = document.createElement('span');
+    sp.className = 'tc leaf';
+    end.appendChild(sp);
+    var close = document.createElement('span');
+    close.className = 'tb';
+    close.textContent = node.type === 'object' ? '}' : ']';
+    end.appendChild(close);
+    if (!isLast) end.appendChild(makeComma());
+    wrap.appendChild(end);
+
+    caret.addEventListener('click', function (e) {
+      e.stopPropagation();
+      wrap.classList.toggle('collapsed');
+    });
+
+    return wrap;
+  }
+
+  function renderTree(container, groups) {
+    container.innerHTML = '';
+    var total = 0;
+    groups.forEach(function (g) {
+      g.nodes.forEach(function (nd) { total += countNodes(nd); });
+    });
+
+    if (total > NODE_LIMIT) {
+      container.style.whiteSpace = 'pre';
+      var warn = document.createElement('div');
+      warn.className = 'group-head';
+      warn.textContent = '// 节点过多（' + total + ' 个），已降级为纯文本以保证流畅';
+      container.appendChild(warn);
+      var pre = document.createElement('div');
+      pre.textContent = groups.map(function (g) {
+        return g.nodes.map(function (nd) { return stringifyNode(nd, '  ', 0); }).join('\n\n');
+      }).join('\n\n');
+      container.appendChild(pre);
+      return;
+    }
+
+    container.style.whiteSpace = 'normal';
+
+    groups.forEach(function (g) {
+      if (groups.length > 1) {
+        var h = document.createElement('div');
+        h.className = 'group-head';
+        h.textContent = '// ---- ' + g.tag + ' (' + g.nodes.length + ' 个) ----';
+        container.appendChild(h);
+      }
+      g.nodes.forEach(function (nd, ni) {
+        container.appendChild(buildNode(nd, null, ni === g.nodes.length - 1));
+      });
+    });
+  }
+
+  /* =========================================================
+   * 10. 主流程
+   * ========================================================= */
+  var elInput = document.getElementById('input');
+  var elOutJson = document.getElementById('outJson');
+  var elOutKotlin = document.getElementById('outKotlin');
+  var elEmpty = document.getElementById('emptyTip');
+  var elStatus = document.getElementById('statusbar');
+  var elRoot = document.getElementById('optRoot');
+  var elAnno = document.getElementById('optAnno');
+  var elNull = document.getElementById('optNull');
+  var elCase = document.getElementById('optCase');
+  var elTs = document.getElementById('optTs');
+
+  var currentTab = 'json';
+  var lastKotlin = '';
+  var lastJson = '';
+
+  function readOpts() {
+    return {
+      rootName: (elRoot.value || 'Response').trim() || 'Response',
+      anno: elAnno.value,
+      nullMode: elNull.value,
+      caseMode: elCase.value,
+      tsLong: elTs.checked
+    };
+  }
+
+  function statusHtml(parts) {
+    elStatus.innerHTML = parts.map(function (p) {
+      return '<span class="st ' + (p.cls || '') + '"><span class="dot"></span>' +
+        (p.label ? p.label + ' ' : '') + '<b>' + esc(String(p.value)) + '</b></span>';
+    }).join('');
+  }
+
+  function run() {
+    var raw = elInput.value;
+    if (!raw.trim()) {
+      elOutJson.textContent = '';
+      elOutKotlin.textContent = '';
+      lastJson = ''; lastKotlin = '';
+      elEmpty.style.display = 'flex';
+      elEmpty.textContent = '等待输入…';
+      statusHtml([{ value: '就绪' }]);
+      return;
+    }
+
+    var parsed = parseLog(raw);
+    var stats = parsed.stats;
+
+    // 提取结构，按 tag 分组
+    var byTag = new Map();
+    var tagOrder = [];
+    var jsonCount = 0;
+    var kinds = {};
+
+    parsed.entries.forEach(function (e) {
+      var k = e.tag || '(无 tag)';
+      if (!byTag.has(k)) { byTag.set(k, []); tagOrder.push(k); }
+      byTag.get(k).push(e);
+    });
+
+    var groups = [];
+
+    tagOrder.forEach(function (tag) {
+      var list = byTag.get(tag);
+      var nodes = [];
+
+      list.forEach(function (e) {
+        extractNodes(e.content).forEach(function (nd) { nodes.push(nd); });
+      });
+
+      // 兜底：逐条都提取不到，但整组像扁平 TextFormat（每行一个字段、没有 {}）
+      // 这时 logcat 每条都是完整"行"，需要按 tag 重新拼回去
+      if (!nodes.length && list.length > 1) {
+        var pbNode = mergeFlatProto(list.map(function (e) { return e.content; }));
+        if (pbNode) nodes.push(pbNode);
+      }
+
+      if (nodes.length) {
+        nodes.forEach(function (nd) {
+          kinds[nd.kind || 'json'] = true;
+          jsonCount++;
+        });
+        groups.push({ tag: tag, nodes: nodes });
+      }
+    });
+
+    if (!jsonCount) {
+      elOutJson.textContent = '';
+      elOutKotlin.textContent = '';
+      lastJson = ''; lastKotlin = '';
+      elEmpty.style.display = 'flex';
+      elEmpty.textContent = '没从这段文本里找到可解析的 JSON / toString / protobuf 结构';
+      statusHtml([
+        { label: '日志行', value: stats.lines },
+        { label: '可识别条目', value: stats.entries },
+        { label: '结构', value: 0, cls: 'err' }
+      ]);
+      return;
+    }
+
+    // 纯文本副本（复制用）
+    var jsonParts = [];
+    groups.forEach(function (g) {
+      if (groups.length > 1) {
+        jsonParts.push('// ---- ' + g.tag + ' (' + g.nodes.length + ' 个) ----');
+      }
+      g.nodes.forEach(function (nd) {
+        jsonParts.push(stringifyNode(nd, '  ', 0));
+      });
+    });
+    lastJson = jsonParts.join('\n\n');
+
+    // 可折叠树视图
+    renderTree(elOutJson, groups);
+
+    // Kotlin 输出
+    var opts = readOpts();
+    try {
+      lastKotlin = genKotlin(groups, opts);
+    } catch (err) {
+      lastKotlin = '// 生成失败：' + err.message;
+    }
+    elOutKotlin.innerHTML = hlKotlin(lastKotlin);
+
+    elEmpty.style.display = 'none';
+
+    var KIND_LABEL = {
+      json: 'JSON',
+      toString: 'toString',
+      'proto-text': 'pb TextFormat',
+      'proto-hex': 'pb 二进制'
+    };
+    var kindList = Object.keys(kinds).map(function (k) { return KIND_LABEL[k] || k; });
+
+    var parts = [
+      { label: '日志行', value: stats.lines },
+      { label: '条目', value: stats.entries },
+      { label: '结构', value: jsonCount, cls: 'ok' }
+    ];
+    if (kindList.length) parts.push({ label: '格式', value: kindList.join(' + ') });
+    if (stats.merged) parts.push({ label: '自动拼接', value: stats.merged + ' 次', cls: 'ok' });
+    if (stats.lost) parts.push({ label: '日志缺失', value: stats.lost + ' 处已跳过', cls: 'warn' });
+    if (groups.length) {
+      parts.push({ label: 'tag', value: groups.map(function (g) { return g.tag; }).join(', ') });
+    }
+    statusHtml(parts);
+  }
+
+  var timer = null;
+  function schedule() {
+    clearTimeout(timer);
+    timer = setTimeout(run, 180);
+  }
+
+  /* ---- 事件 ---- */
+  elInput.addEventListener('input', schedule);
+  [elRoot, elAnno, elNull, elCase, elTs].forEach(function (el) {
+    el.addEventListener('change', run);
+    el.addEventListener('input', schedule);
+  });
+
+  document.querySelectorAll('.tab').forEach(function (btn) {
+    btn.addEventListener('click', function () { setTab(btn.dataset.tab); });
+  });
+
+  function setTab(name) {
+    currentTab = name;
+    document.querySelectorAll('.tab').forEach(function (b) {
+      b.classList.toggle('on', b.dataset.tab === name);
+    });
+    elOutJson.style.display = name === 'json' ? 'block' : 'none';
+    elOutKotlin.style.display = name === 'kotlin' ? 'block' : 'none';
+  }
+
+  document.getElementById('btnFoldAll').addEventListener('click', function () {
+    Array.prototype.forEach.call(elOutJson.querySelectorAll('.tn'), function (n) {
+      n.classList.add('collapsed');
+    });
+  });
+
+  document.getElementById('btnUnfoldAll').addEventListener('click', function () {
+    Array.prototype.forEach.call(elOutJson.querySelectorAll('.tn'), function (n) {
+      n.classList.remove('collapsed');
+    });
+  });
+
+  document.getElementById('btnCopy').addEventListener('click', function () {
+    var text = currentTab === 'json' ? lastJson : lastKotlin;
+    if (!text) return;
+    var btn = this;
+    navigator.clipboard.writeText(text).then(function () {
+      var old = btn.textContent;
+      btn.textContent = '已复制';
+      setTimeout(function () { btn.textContent = old; }, 1100);
+    }).catch(function () {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    });
+  });
+
+  document.getElementById('btnClear').addEventListener('click', function () {
+    elInput.value = '';
+    run();
+    elInput.focus();
+  });
+
+  document.getElementById('btnPaste').addEventListener('click', function () {
+    navigator.clipboard.readText().then(function (t) {
+      elInput.value = t;
+      run();
+    }).catch(function () { elInput.focus(); });
+  });
+
+  document.getElementById('btnSample').addEventListener('click', function () {
+    elInput.value = SAMPLE;
+    run();
+  });
+
+  /* ---- 示例 ---- */
+  var SAMPLE = [
+    '2026-10-26 17:08:10.121 12345-12401/com.example.app I/Choreographer: Skipped 32 frames!  The application may be doing too much work on its main thread.',
+    '2026-10-26 17:08:10.123 12345-12401/com.example.app D/OkHttp: {"code":0,"message":"ok","data":{"list":[{"id":1001,"title":"Hello World","content":"Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam',
+    '2026-10-26 17:08:10.124 12345-12401/com.example.app D/OkHttp: , quis nostrud exercitation ullamco laboris","author":{"uid":90001,"name":"bob","vip":true},"tags":["tech","life"],"create_time":1729934890123},{"id":1002,"title":"Second","content":"short","author":{"uid":90002,"name":"alice","vip":false},"tags":[],"create_time":1729934890456}],"total":2,"has_more":false}}',
+    '2026-10-26 17:08:10.126 12345-12401/com.example.app D/Api: {"code":200,"msg":"success","payload":{"user_id":880012345678,"nickname":"张三","avatar":null,"balance":12.50,"level":3}}'
+  ].join('\n');
+
+  /* 调试出口：便于脱离 UI 做逻辑验证 */
+  window.__l2k = {
+    parseLog: parseLog,
+    extractNodes: extractNodes,
+    parseLoose: parseLoose,
+    stringifyNode: stringifyNode,
+    typeOf: typeOf,
+    genKotlin: genKotlin,
+    camel: camel,
+    pascal: pascal,
+    singular: singular,
+    parseProtoText: parseProtoText,
+    looksLikeProtoText: looksLikeProtoText,
+    mergeFlatProto: mergeFlatProto,
+    decodeHexDump: decodeHexDump,
+    looksLikeHexDump: looksLikeHexDump,
+    countNodes: countNodes,
+    repairLostSegments: repairLostSegments,
+    findRealign: findRealign,
+    isLostSegment: isLostSegment,
+    stripWrapper: stripWrapper
+  };
+
+  /* 初始化：直接展示示例，方便第一次打开就知道能干什么 */
+  elInput.value = SAMPLE;
+  run();
+  if (typeof location !== 'undefined' && location.hash === '#kotlin') setTab('kotlin');
+  elInput.setSelectionRange(elInput.value.length, elInput.value.length);
+
+})();
+</script>
+</body>
+</html>
