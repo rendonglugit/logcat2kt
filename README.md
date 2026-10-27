@@ -2,7 +2,7 @@
 
 Turn raw logcat output into a collapsible JSON tree and Kotlin data classes.
 
-**Live demo: <https://rendonglu.github.io/logcat2kt/>**
+**Live demo: <https://rendonglugit.github.io/logcat2kt/>**
 
 English | [简体中文](README.zh-CN.md)
 
@@ -54,7 +54,7 @@ A few deliberate decisions:
 
 ## Usage
 
-Open <https://rendonglu.github.io/logcat2kt/>, or double-click `index.html` locally.
+Open <https://rendonglugit.github.io/logcat2kt/>, or double-click `index.html` locally.
 
 1. Select and copy from logcat — multi-select is fine, unrelated lines in between are fine.
 2. Paste into the left pane.

@@ -2,7 +2,7 @@
 
 把 logcat 里复制出来的日志，直接转成可折叠的 JSON 树和 Kotlin data class。
 
-**在线使用：<https://rendonglu.github.io/logcat2kt/>**
+**在线使用：<https://rendonglugit.github.io/logcat2kt/>**
 
 [English](README.md) | 简体中文
 
@@ -54,7 +54,7 @@
 
 ## 使用
 
-打开 <https://rendonglu.github.io/logcat2kt/>，或本地双击 `index.html`。
+打开 <https://rendonglugit.github.io/logcat2kt/>，或本地双击 `index.html`。
 
 1. 从 logcat 框选复制（多选几条没关系，混着别的日志也行）
 2. 粘贴到左边
