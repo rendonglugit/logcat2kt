@@ -303,5 +303,16 @@ check('@long-text 包装被剥离',
   L.stripWrapper('@long-text:"[response]..." <long_text_quote>{"a":1}</long_text_quote>').trim() === '{"a":1}');
 check('普通内容不受影响', L.stripWrapper('{"a":1}') === '{"a":1}');
 
+// 断在半个 value 处的丢段（如 accountDisabled":fa + geType":"GLOBAL"...）
+const partialValLog = 'D/Api: {"code":0,"res":{"activity":{"id":1,"accountDisabled":fa\n' +
+  '17:13:12.098  D  geType":"GLOBAL","rankType":"honor"}],"celebrationRoomType":1}}}';
+const pvl = L.parseLog(partialValLog);
+check('半值断点被识别为丢段', pvl.stats.lost === 1, 'lost=' + pvl.stats.lost);
+const pvn = L.extractNodes(pvl.entries[0].content)[0];
+const pvAct = findField(findField(pvn, 'res'), 'activity');
+const pvCrt = findField(pvAct, 'celebrationRoomType');
+check('半值截断修复后解析出 celebrationRoomType', pvCrt && (pvCrt.value === '1' || pvCrt.raw === '1'), JSON.stringify(pvCrt));
+
+
 console.log('\n===== ' + pass + ' passed, ' + fail + ' failed =====');
 process.exit(fail ? 1 : 0);

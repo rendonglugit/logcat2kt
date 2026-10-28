@@ -436,7 +436,8 @@ textarea#input::placeholder{color:#b6bcc7}
 
   /* ---- 中间丢段检测与修复 ----
    * logcat 缓冲溢出时可能整段丢掉（不是尾部截断）。拼接处会出现"半个 key"，
-   * 例如 `..."accountDisabled":false,` + `pe":"GLOBAL"...`。
+   * 例如 `..."accountDisabled":false,` + `pe":"GLOBAL"...`，
+   * 甚至断在值中间，如 `..."accountDisabled":fa` + `geType":"GLOBAL"...`。
    * 直接拼会让后续所有字段错位（key 跑到错误的层级），必须跳过残片重新对齐。
    */
   var LOST_MARK = '\u0000LOST\u0000';
@@ -445,20 +446,29 @@ textarea#input::placeholder{color:#b6bcc7}
     var left = prevText.replace(/\s+$/, '');
     var right = nextText.replace(/^\s+/, '');
     if (!left || !right) return false;
-    var lastCh = left.charAt(left.length - 1);
-    // 左端必须停在 token 边界上，否则就是普通截断
-    if (lastCh !== ',' && lastCh !== '{' && lastCh !== '[' && lastCh !== ':') return false;
 
     var firstCh = right.charAt(0);
-    // 合法的 JSON token 起始
+    // 合法的 JSON token 起始（包含属性分隔符逗号）
     if (firstCh === '"' || firstCh === '{' || firstCh === '[' ||
-        firstCh === '}' || firstCh === ']') return false;
+        firstCh === '}' || firstCh === ']' || firstCh === ',') return false;
+
+    // 右侧以残缺 key 开头（如 pe":"GLOBAL" 或 geType":"GLOBAL"）
+    var isPartialKey = false;
+    if (/[A-Za-z0-9_]/.test(firstCh)) {
+      var m = /^[A-Za-z0-9_]+\s*"\s*:/.exec(right);
+      if (m) isPartialKey = true;
+    }
+    if (isPartialKey) return true;
+
+    // 左端必须停在 token 边界上，否则就是普通截断
+    var lastCh = left.charAt(left.length - 1);
+    if (lastCh !== ',' && lastCh !== '{' && lastCh !== '[' && lastCh !== ':') return false;
     if (firstCh === '-' || (firstCh >= '0' && firstCh <= '9')) return false;
 
     if (/[A-Za-z_]/.test(firstCh)) {
-      var m = /^[A-Za-z_]\w*/.exec(right);
+      var m2 = /^[A-Za-z_]\w*/.exec(right);
       // xxx" → 残缺的 key 尾巴，说明中间丢了内容；否则可能是 true/false/null
-      if (m && right.charAt(m[0].length) === '"') return true;
+      if (m2 && right.charAt(m2[0].length) === '"') return true;
       return false;
     }
     return true;
@@ -491,7 +501,11 @@ textarea#input::placeholder{color:#b6bcc7}
     for (;;) {
       var m = text.indexOf(LOST_MARK, i);
       if (m < 0) { pieces.push(text.slice(i)); break; }
-      pieces.push(text.slice(i, m));
+      var leftPiece = text.slice(i, m).replace(/\s+$/, '');
+      // 裁掉截断处未完成的残缺 key 或 value（如 ,"accountDisabled":fa）
+      leftPiece = leftPiece.replace(/(?:,\s*"[^"]*"\s*:\s*|,\s*)[A-Za-z0-9_.]*$/, '');
+      leftPiece = leftPiece.replace(/,\s*"[^"]*"\s*:?$/, '');
+      pieces.push(leftPiece);
       count++;
       i = findRealign(text, m + LOST_MARK.length);
       if (i >= text.length) break;
@@ -499,9 +513,11 @@ textarea#input::placeholder{color:#b6bcc7}
     var out = pieces[0] || '';
     for (var k = 1; k < pieces.length; k++) {
       var right = pieces[k];
-      // 断点前以 , 结尾、对齐点以 , 开头 → 去重
+      // 断点前以 , 结尾、对齐点以 , 开头 → 去重；缺失逗号时自动补齐
       if (/,\s*$/.test(out) && /^\s*,/.test(right)) {
         right = right.replace(/^\s*,/, '');
+      } else if (!/,\s*$/.test(out) && !/^\s*,/.test(right) && !/[{\[]\s*$/.test(out)) {
+        right = ',' + right;
       }
       out += right;
     }
